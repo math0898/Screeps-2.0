@@ -86,7 +86,7 @@ export class SpawnManager {
      const capacity:number = room.find(FIND_MY_STRUCTURES, {filter: (s) => s.structureType == STRUCTURE_EXTENSION}).length * 50 + 300;
 
      var tw:number = 10;
-     if (room.memory.energyStatus != undefined) tw = room.memory.energyStatus * 2;
+     if (room.memory.energyStatus != undefined) tw = room.memory.energyStatus;
 
      var te:number = 0;
      if (room.find(FIND_MINERALS)[0].mineralAmount > 0) te = 1;

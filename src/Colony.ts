@@ -11,9 +11,9 @@ import { RoomPlanner } from "RoomPlanner";
 import { Goals } from "CreepTypes/CreepRole";
 interface IDictionary { [index: string]: number; }
 var p = {} as IDictionary;
-export enum EnergyStatus {EXTREME_DROUGHT = 0, HIGH_DROUGHT = 0.5, DROUGHT = 1,
-MEDIUM_DROUGHT = 1.5, LIGHT_DROUGHT = 2, LIGHT_FLOOD = 2.5, MEDIUM_FLOOD = 3,
-FLOOD = 3.5, HIGH_FLOOD = 4, EXTREME_FLOOD = 4.5}
+export enum EnergyStatus {EXTREME_DROUGHT = 1, HIGH_DROUGHT = 2, DROUGHT = 3,
+MEDIUM_DROUGHT = 4, LIGHT_DROUGHT = 5, LIGHT_FLOOD = 6, MEDIUM_FLOOD = 7,
+FLOOD = 8, HIGH_FLOOD = 9, EXTREME_FLOOD = 10}
 /**
  * A colony is a small collection of rooms. Each colony has a number of creeps
  * it needs to spawn to be functional.
@@ -56,7 +56,6 @@ export class Colony{
     if(this.roomPlanner.getConstruction() != undefined && c.length == 0) this.roomPlanner.getConstruction()!.pop()!.place();
     //Request a census every 100 ticks
     if(Game.time % 100 == 0) {
-      Queue.request(new Run_Census(this));
       Queue.request(new Check_Energy(this));
     }
     if (this.roomPlanner.getDistanceTransform() == undefined) Queue.request(new Calculate_DistanceTransform(this));
@@ -70,31 +69,9 @@ export class Colony{
     if (Game.flags["Flood"] != undefined) if (Game.flags["Flood"].room!.name == this.home.name) Queue.request(new Calculate_FloodFill(this));
     this.checkGoals();
     //Run the spawn manger.
-    this.census();
     this.spawnManager.check();
     this.spawnManager.spawn();
     if (Game.flags["Visuals"] != undefined) new VisualsManager().run(this.home.name, this.roomPlanner.getDistanceTransform(), this.roomPlanner.getFloodFill());
-  }
-  /**
-   * This method runs a quick census of all the creeps and updates the memory in
-   * this.home to their numbers.
-   */
-  census(){
-    this.home.memory.counts["Worker"] = 0;
-    this.home.memory.counts["Extractor"] = 0;
-    this.home.memory.counts["Store"] = 0;
-    this.home.memory.counts["Fill"] = 0;
-
-    for(let c in Game.creeps){
-      var creep:Creep = Game.creeps[c];
-      if (creep.memory.room != this.home.name) continue;
-      if (creep.memory.role == undefined) {
-        this.home.memory.counts["Worker"]++;
-        if (creep.memory.goal == "Store") this.home.memory.counts["Store"] += 1;
-        else if (creep.memory.goal == "Fill") this.home.memory.counts["Fill"] += 1;
-      }
-      else this.home.memory.counts[creep.memory.role]++;
-    }
   }
   /**
    * checkGoals checks the goals of the colony and updates it with new roles
@@ -110,7 +87,7 @@ export class Colony{
      const d:Source[] | null = this.home.find(FIND_SOURCES_ACTIVE);
      const s:Structure[] | null = this.home.find(FIND_MY_STRUCTURES, {filter: (s) => (s.structureType == STRUCTURE_SPAWN || s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_TOWER) && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0}); //O(7 + 3n)
      if (this.home.terminal != undefined && Game.time % 1500 == 0) if (this.home.terminal.store.getUsedCapacity(RESOURCE_ENERGY) < 200000) CreepManager.declareJob(new Job(Goals.TRADE, this.home.name));
-     const h:number = this.home.memory.counts["Store"];
+     const h:number = this.home.memory.counts["STORE"];
      //Check the goals that need to be taken
      if (w != null && w.length > 0 && Game.time % 500 == 0) CreepManager.declareJob(new Job(Goals.REINFORCE, this.home.name));
      if (r != null && r.length > 0 && Game.time % 500 == 0) CreepManager.declareJob(new Job(Goals.FIX, this.home.name));
@@ -151,22 +128,6 @@ export class Run_Colony extends template implements task {
   //Methods
   run(){
     this.colony.run();
-  }
-}
-
-export class Run_Census extends template implements task {
-  //Variables
-  colony:Colony;
-
-  //Construtor
-  constructor(c:Colony){
-    super("Run Census");
-    this.colony = c;
-  }
-
-  //Methods
-  run(){
-    this.colony.census();
   }
 }
 

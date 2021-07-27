@@ -4,6 +4,7 @@
  */
 interface CreepMemory {
   sources?:string;
+  source?:string;
   emptyStructure?:string;
   droppedResource?:string;
   building?:string;
@@ -20,6 +21,31 @@ interface CreepMemory {
   goal?: string;
   mineral?: string;
   tombstone?:string;
+  said?:number;
+}
+interface Creep {
+  /**
+   * An extension of the Creep prototype. This function is meant to replace
+   * creep.moveTo(target); In general it is also more efficent than using
+   * creep.moveTo(target);
+   * @param t The target positon you wnt the creep to reach
+   * @return 1 Path found
+   * @return 0 Function completed as intended
+   * @return -11 Creep is fatigued
+   * @return -666 Uh...
+   */
+  smartMove(t:RoomPosition): number;
+  /**
+   * An extension of the Creep prototype. This function is meant to replace
+   * creep.harvest(target); and some relevant proccesses usually required to use
+   * the function. In general it is also more efficent than trying to use those
+   * extra proccesses and creep.harvest(target); Creep.memory.source should be
+   * defined as a game object id if a specific source is desired.
+   * @return 1 No source target was found so one was found
+   * @return 0 Function completed as intended
+   * @return -1 A game object of that id could not be found
+   */
+  smartHarvest(): number;
 }
 /**
  * For the next two memory sections I need an array indexed by strings and this

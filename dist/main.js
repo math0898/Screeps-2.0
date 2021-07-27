@@ -570,31 +570,104 @@ class update_Rooms extends template {
 }
 
 /**
- * This boolean tells whether creeps should report what they are doing or not.
- */
-//-------------------------------------------------------
-//|                                                     |
-//| Creep.prototpye.sayHi = function(){this.say('hi');} |
-//|                                                     |
-//-------------------------------------------------------
-/**
- * Should the debug messages be sent to everyone?
- */
-var publicDebug = true;
-/**
  * A breif enum describing the possible goals creeps can carry out for their
  * colony.
  */
 var Goals;
 (function (Goals) {
-    Goals["FILL"] = "Fill";
-    Goals["FIX"] = "Fix";
-    Goals["BUILD"] = "Build";
-    Goals["UPGRADE"] = "Upgrade";
-    Goals["REINFORCE"] = "Reinforce";
-    Goals["STORE"] = "Store";
-    Goals["TRADE"] = "Trade";
+    Goals["FILL"] = "FILL";
+    Goals["FIX"] = "FIX";
+    Goals["BUILD"] = "BUILD";
+    Goals["UPGRADE"] = "UPGRADE";
+    Goals["REINFORCE"] = "REINFORCE";
+    Goals["STORE"] = "STORE";
+    Goals["TRADE"] = "TRADE";
 })(Goals || (Goals = {}));
+/**
+ * Should the debug messages be sent to everyone?
+ */
+const publicDebug = true;
+/**
+ * The compareRoomPos() function takes two room positions and compares them.
+ * It returns true if and only if they are equal. If either are undefined the
+ * function returns false.
+ * @param a - The first room to compare
+ * @param b - The second room to compare
+ */
+function compareRoomPos(a, b) {
+    if (a != undefined && b != undefined) {
+        if (a.x != b.x)
+            return false;
+        if (a.y != b.y)
+            return false;
+        if (a.roomName != b.roomName)
+            return false;
+        return true;
+    }
+    else
+        return false;
+}
+/**
+ * An extension of the Creep prototype. This function is meant to replace
+ * creep.moveTo(target); In general it is also more efficent than using
+ * creep.moveTo(target);
+ * @param t The target positon you wnt the creep to reach
+ * @return 1 Path found
+ * @return 0 Function completed as intended
+ * @return -11 Creep is fatigued
+ * @return -666 Uh...
+ */
+Creep.prototype.smartMove = function (t) {
+    if (this.fatigue > 0)
+        return -11; //Creep is fatigued
+    const step = this.memory.pathStep;
+    const path = this.memory.path;
+    if (compareRoomPos(this.memory.pathTarget, t) || step == (path === null || path === void 0 ? void 0 : path.length)) {
+        this.memory.path = this.pos.findPathTo(t, { ignoreCreeps: false });
+        this.memory.pathTarget = t;
+        this.memory.pathStep = 0;
+        return 1; //Path found
+    }
+    if (path != undefined && step != undefined) {
+        if (path[step] != undefined) {
+            this.move(path[step].direction);
+            this.memory.pathStep = step + 1;
+            return 0; //Function completed as intended
+        }
+    }
+    return -666; //Uh....
+};
+/**
+ * An extension of the Creep prototype. This function is meant to replace
+ * creep.harvest(target); and some relevant proccesses usually required to use
+ * the function. In general it is also more efficent than trying to use those
+ * extra proccesses and creep.harvest(target); Creep.memory.source should be
+ * defined as a game object id if a specific source is desired.
+ * @return 1 No source target was found so one was found
+ * @return 0 Function completed as intended
+ * @return -1 A game object of that id could not be found
+ */
+Creep.prototype.smartHarvest = function () {
+    const sid = this.memory.source;
+    if (sid == undefined) {
+        const t = this.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+        if (t != null)
+            this.memory.source = t.id;
+        return 1; //No source target was found so one was found
+    }
+    const s = Game.getObjectById(sid);
+    if (s != null && s.energy != 0) {
+        if (!(this.pos.isNearTo(s)))
+            this.smartMove(s.pos);
+        else
+            this.harvest(s);
+        return 0; //Function completed as intended
+    }
+    else {
+        this.memory.source = undefined;
+        return -1; //A game object of that id could not be found
+    }
+};
 /**
  * This is an abstract class which holds of lot of useful utility functions for
  * creep roles in general. This class includes an optimized movement method, and
@@ -1141,37 +1214,67 @@ class Extractor extends Creep_Prototype {
     }
 }
 
-//Import the creepRole interface
 /**
- * This is the class for the Carrier creep. The primary role of the carrier
- * creep is to move resources around the base and into storage or other devices
- * that could use them.
+ * Import the creepRole interface, and some debugging variables.
+ */
+/**
+ * A set of things the creep says and cycles through when mining.
+ */
+const mining = ["▪▪▪▪▪▪▪▪▪⛏", "▪▪▪▪▪▪▪▪⛏▪", "▪▪▪▪▪▪▪⛏▪▪", "▪▪▪▪▪▪⛏▪▪▪",
+    "▪▪▪▪▪⛏▪▪▪▪", "▪▪▪▪⛏▪▪▪▪▪", "▪▪▪⛏▪▪▪▪▪▪", "▪▪⛏▪▪▪▪▪▪▪", "▪⛏▪▪▪▪▪▪▪▪",
+    "⛏▪▪▪▪▪▪▪▪▪"];
+/**
+ * This is the class for the miner creep. The primary role of the miner creep
+ * is to find an unworked source and to fully mine the source until the miner
+ * creep dies.
  */
 class Miner extends Creep_Prototype {
+    /**
+     * The constructor throws the role name up to the abstract class. Otherwise
+     * we don't need anything else in particular for this role.
+     */
     constructor() { super("Miner"); }
-    //Real Methods
-    run(creep) {
-        Miner.run(creep);
-    }
+    /**
+     * The object version of Miner.run(Creep). There is no difference here it just
+     * might be easier to call this instead of the static method in some cases.
+     */
+    run(creep) { Miner.run(creep); }
+    /**
+     * The logic for the miner role. Mostly just finding a good source and then
+     * telling the creep to smart harvest.
+     */
     static run(creep) {
-        if (creep.memory.sources == undefined)
-            var s = creep.room.find(FIND_SOURCES_ACTIVE);
-        if (s != undefined) {
-            var t = s[0];
-            for (var i = 1; i < s.length; i++)
-                if (s[i].energy > t.energy)
-                    t = s[i];
+        const sid = creep.memory.source;
+        if (sid == undefined) {
+            creep.say('🤔', publicDebug);
+            const s = creep.room.find(FIND_SOURCES_ACTIVE);
+            if (s != undefined) {
+                var t = s[0];
+                for (var i = 1; i < s.length; i++)
+                    if (s[i].energy > t.energy)
+                        t = s[i];
+                creep.memory.source = t.id;
+            }
         }
-        Creep_Prototype.creepHarvest(creep);
+        else {
+            {
+                var a = creep.memory.said;
+                if (a == undefined)
+                    a = 0;
+                creep.say(mining[a], publicDebug);
+                creep.memory.said = (a + 1) % mining.length;
+            }
+            creep.smartHarvest();
+        }
     }
 }
 
-//Import the queue so we can request tasks, priority so we can set priority
-var params = {};
-params["Scout"] = new Scout();
-params["Defender"] = new Defender();
-params["Extractor"] = new Extractor();
-params["Miner"] = new Miner();
+//Import the roles
+var roles = {};
+roles["Scout"] = new Scout();
+roles["Defender"] = new Defender();
+roles["Extractor"] = new Extractor();
+roles["Miner"] = new Miner();
 /**
  * This is an class describing a job for creeps to take on.
  */
@@ -1188,82 +1291,82 @@ class Job {
  * management of creeps including their AI and memory.
  */
 class CreepManager {
-    //Constructors
-    constructor() {
-        //Set the last time we cleaned memory to the anchient times
-        Memory.lastCreepClean = 0;
-    }
-    //Accessor methods
-    //Real methods
     /**
-     * Runs the creep manager class. Static as it has nothing it needs to modify
-     * on the object.
-     * Runtime: O(c) ---> Runs in constant time.
+     * Runs the creep manager on all the creeps in the game.
      */
     static run() {
-        CreepManager.updateCreeps();
-        //Start at 6,000 ticks and increment down. Request a clean based on how long ago it was
-        for (var i = 4; i > 0; i--)
-            if (Game.time - Memory.lastCreepClean >= 1500 * i || Memory.lastCreepClean == undefined) {
-                Queue.request(new cleanMemory_CreepManager(), i * 25);
-                console.log("Requested memory clean");
-                break;
-            }
-    }
-    static runCreepsAI() {
-        CreepManager.updateCreeps();
-        CreepManager.assignJobs();
-        //Iterate through creeps
+        CreepManager.resetRoomCounts();
+        CreepManager.creeps = [];
         for (let c in Game.creeps) {
-            //Short hand
             var creep = Game.creeps[c];
-            //Check if the creep is spawning
+            CreepManager.creeps.push(creep);
+            const role = creep.memory.role;
+            const room = creep.memory.room;
+            const goal = creep.memory.goal;
+            if (!Game.creeps[c]) {
+                delete Memory.creeps[c];
+                continue;
+            }
+            if (role != undefined)
+                Memory.rooms[room].counts[role] += 1;
+            else {
+                Memory.rooms[room].counts["Worker"] += 1;
+                if (goal != undefined)
+                    Memory.rooms[room].counts[goal] + 1;
+            }
             if (creep.spawning)
-                break;
-            //If the creep has a defined role run that role's AI
-            if (creep.memory.role != undefined)
-                params[creep.memory.role].run(creep);
-            //Run the creep generalized AI
+                continue;
+            else if (role != undefined)
+                roles[role].run(creep);
             else
                 Creep_Prototype.run(creep);
-            //Check the creep's life
             Creep_Prototype.checkLife(creep);
+            if (CreepManager.jobs.length > 0 && role == undefined) {
+                const jobRoom = CreepManager.jobs[0].getRoom();
+                const job = CreepManager.jobs[0].getGoal();
+                if (room == jobRoom && CreepManager.goalSwitch(goal, job, jobRoom)) {
+                    creep.memory.goal = job;
+                    CreepManager.jobs.pop();
+                }
+            }
         }
     }
     /**
-     * Clears the memory of dead creeps.
-     * Runtime: O(n) ---> n is the number of creeps.
+     * Resets all the counts for all the rooms under vision.
      */
-    static cleanMemory() {
-        //Iterate through creeps and check if they're alive, if they're not clean the memory
-        for (var c in Memory.creeps)
-            if (!Game.creeps[c])
-                delete Memory.creeps[c]; //O(n)
-        //Set the last clean date to right now
-        Memory.lastCreepClean = Game.time;
-    }
-    static updateCreeps() {
-        CreepManager.creeps = [];
-        for (var c in Memory.creeps) {
-            if (!Game.creeps[c])
-                delete Memory.creeps[c];
-            else
-                CreepManager.creeps.push(Game.creeps[c]);
+    static resetRoomCounts() {
+        for (let r in Game.rooms) {
+            var room = Game.rooms[r];
+            room.memory.counts["Worker"] = 0;
+            room.memory.counts["Extractor"] = 0;
+            room.memory.counts["Miner"] = 0;
+            for (let g in Goals) {
+                room.memory.counts[g] = 0;
+            }
         }
     }
-    static declareJob(j) { CreepManager.jobs.push(j); }
-    static assignJobs() {
-        for (var i = 0; i < CreepManager.jobs.length; i++)
-            for (var j = 0; j < CreepManager.creeps.length; j++) {
-                if (CreepManager.creeps[j].memory.role != undefined)
-                    continue;
-                if (CreepManager.creeps[j].memory.room == CreepManager.jobs[i].getRoom()) {
-                    if (CreepManager.creeps[j].memory.goal == undefined || CreepManager.creeps[j].memory.goal == Goals.UPGRADE || (CreepManager.jobs[i].getGoal() == Goals.FILL && Game.rooms[CreepManager.jobs[i].getRoom()].memory.counts["Fill"] == 0)) {
-                        CreepManager.creeps[j].memory.goal = CreepManager.jobs.pop().getGoal();
-                        break;
-                    }
-                }
-            }
+    /**
+     * Runs some logic to determine whether a goal should be switched for another.
+     */
+    static goalSwitch(goal, job, room) {
+        if (goal == undefined || goal == Goals.UPGRADE)
+            return true;
+        else if (job == Goals.FILL && Game.rooms[room].memory.counts[Goals.FILL] == 0)
+            return true;
+        else
+            return false;
+    }
+    static declareJob(j) { if (CreepManager.uniqueJob(j))
+        CreepManager.jobs.push(j); }
+    /**
+     * Looks at the jobs array and makes sure the given job is not part of it.
+     */
+    static uniqueJob(j) {
+        var jobs = CreepManager.jobs;
+        for (var i = 0; i < jobs.length; i++)
+            if (jobs[i].getRoom() == j.getRoom() && jobs[i].getGoal() == j.getGoal())
+                return false;
+        return true;
     }
     static printJobs() {
         for (var i = 0; i < CreepManager.jobs.length; i++)
@@ -1271,12 +1374,17 @@ class CreepManager {
         return 0;
     }
     static resetJobs() {
-        while (CreepManager.jobs.length > 0)
-            CreepManager.jobs.pop();
+        CreepManager.jobs = [];
+        return 0;
     }
 }
-//Variables
+/**
+ * An array of jobs which need to be assigned to creeps.
+ */
 CreepManager.jobs = [];
+/**
+ * An array which holds all the creeps.
+ */
 CreepManager.creeps = [];
 /**
  * The run CreepManager task runs the logic for the CreepManager which requests
@@ -1288,30 +1396,6 @@ class run_CreepManager extends template {
     run() {
         //Simple enough I'd say
         CreepManager.run();
-    }
-}
-/**
- * The creepAI CreepManager task runs the ai for all the creeps.
- */
-class creepAI_CreepManager extends template {
-    constructor() { super("Run Creep AI"); }
-    //Real Methods
-    run() {
-        //Simple enough I'd say
-        CreepManager.runCreepsAI();
-    }
-}
-/**
- * The clean memory task clears the memory of any old creeps so they don't clog
- * it up too much in the future.
- */
-class cleanMemory_CreepManager extends template {
-    //Variables
-    constructor() { super("Clean Creep Memory"); }
-    //Real Methods
-    run() {
-        //Simple enough I'd say
-        CreepManager.cleanMemory();
     }
 }
 
@@ -1398,7 +1482,7 @@ class SpawnManager {
         const capacity = room.find(FIND_MY_STRUCTURES, { filter: (s) => s.structureType == STRUCTURE_EXTENSION }).length * 50 + 300;
         var tw = 10;
         if (room.memory.energyStatus != undefined)
-            tw = room.memory.energyStatus * 2;
+            tw = room.memory.energyStatus;
         var te = 0;
         if (room.find(FIND_MINERALS)[0].mineralAmount > 0)
             te = 1;
@@ -2345,16 +2429,16 @@ class RoomPlanner {
 var p = {};
 var EnergyStatus;
 (function (EnergyStatus) {
-    EnergyStatus[EnergyStatus["EXTREME_DROUGHT"] = 0] = "EXTREME_DROUGHT";
-    EnergyStatus[EnergyStatus["HIGH_DROUGHT"] = 0.5] = "HIGH_DROUGHT";
-    EnergyStatus[EnergyStatus["DROUGHT"] = 1] = "DROUGHT";
-    EnergyStatus[EnergyStatus["MEDIUM_DROUGHT"] = 1.5] = "MEDIUM_DROUGHT";
-    EnergyStatus[EnergyStatus["LIGHT_DROUGHT"] = 2] = "LIGHT_DROUGHT";
-    EnergyStatus[EnergyStatus["LIGHT_FLOOD"] = 2.5] = "LIGHT_FLOOD";
-    EnergyStatus[EnergyStatus["MEDIUM_FLOOD"] = 3] = "MEDIUM_FLOOD";
-    EnergyStatus[EnergyStatus["FLOOD"] = 3.5] = "FLOOD";
-    EnergyStatus[EnergyStatus["HIGH_FLOOD"] = 4] = "HIGH_FLOOD";
-    EnergyStatus[EnergyStatus["EXTREME_FLOOD"] = 4.5] = "EXTREME_FLOOD";
+    EnergyStatus[EnergyStatus["EXTREME_DROUGHT"] = 1] = "EXTREME_DROUGHT";
+    EnergyStatus[EnergyStatus["HIGH_DROUGHT"] = 2] = "HIGH_DROUGHT";
+    EnergyStatus[EnergyStatus["DROUGHT"] = 3] = "DROUGHT";
+    EnergyStatus[EnergyStatus["MEDIUM_DROUGHT"] = 4] = "MEDIUM_DROUGHT";
+    EnergyStatus[EnergyStatus["LIGHT_DROUGHT"] = 5] = "LIGHT_DROUGHT";
+    EnergyStatus[EnergyStatus["LIGHT_FLOOD"] = 6] = "LIGHT_FLOOD";
+    EnergyStatus[EnergyStatus["MEDIUM_FLOOD"] = 7] = "MEDIUM_FLOOD";
+    EnergyStatus[EnergyStatus["FLOOD"] = 8] = "FLOOD";
+    EnergyStatus[EnergyStatus["HIGH_FLOOD"] = 9] = "HIGH_FLOOD";
+    EnergyStatus[EnergyStatus["EXTREME_FLOOD"] = 10] = "EXTREME_FLOOD";
 })(EnergyStatus || (EnergyStatus = {}));
 /**
  * A colony is a small collection of rooms. Each colony has a number of creeps
@@ -2391,7 +2475,6 @@ class Colony {
             this.roomPlanner.getConstruction().pop().place();
         //Request a census every 100 ticks
         if (Game.time % 100 == 0) {
-            Queue.request(new Run_Census(this));
             Queue.request(new Check_Energy(this));
         }
         if (this.roomPlanner.getDistanceTransform() == undefined)
@@ -2408,35 +2491,10 @@ class Colony {
                 Queue.request(new Calculate_FloodFill(this));
         this.checkGoals();
         //Run the spawn manger.
-        this.census();
         this.spawnManager.check();
         this.spawnManager.spawn();
         if (Game.flags["Visuals"] != undefined)
             new VisualsManager().run(this.home.name, this.roomPlanner.getDistanceTransform(), this.roomPlanner.getFloodFill());
-    }
-    /**
-     * This method runs a quick census of all the creeps and updates the memory in
-     * this.home to their numbers.
-     */
-    census() {
-        this.home.memory.counts["Worker"] = 0;
-        this.home.memory.counts["Extractor"] = 0;
-        this.home.memory.counts["Store"] = 0;
-        this.home.memory.counts["Fill"] = 0;
-        for (let c in Game.creeps) {
-            var creep = Game.creeps[c];
-            if (creep.memory.room != this.home.name)
-                continue;
-            if (creep.memory.role == undefined) {
-                this.home.memory.counts["Worker"]++;
-                if (creep.memory.goal == "Store")
-                    this.home.memory.counts["Store"] += 1;
-                else if (creep.memory.goal == "Fill")
-                    this.home.memory.counts["Fill"] += 1;
-            }
-            else
-                this.home.memory.counts[creep.memory.role]++;
-        }
     }
     /**
      * checkGoals checks the goals of the colony and updates it with new roles
@@ -2455,7 +2513,7 @@ class Colony {
         if (this.home.terminal != undefined && Game.time % 1500 == 0)
             if (this.home.terminal.store.getUsedCapacity(RESOURCE_ENERGY) < 200000)
                 CreepManager.declareJob(new Job(Goals.TRADE, this.home.name));
-        const h = this.home.memory.counts["Store"];
+        const h = this.home.memory.counts["STORE"];
         //Check the goals that need to be taken
         if (w != null && w.length > 0 && Game.time % 500 == 0)
             CreepManager.declareJob(new Job(Goals.REINFORCE, this.home.name));
@@ -2507,17 +2565,6 @@ class Run_Colony extends template {
     //Methods
     run() {
         this.colony.run();
-    }
-}
-class Run_Census extends template {
-    //Construtor
-    constructor(c) {
-        super("Run Census");
-        this.colony = c;
-    }
-    //Methods
-    run() {
-        this.colony.census();
     }
 }
 class Check_Energy extends template {
@@ -2686,8 +2733,6 @@ module.exports.loop = function () {
     if (Game.cpu.bucket == 10000)
         if (Game.shard.name != "")
             Game.cpu.generatePixel();
-    //Things that should always be ran
-    queue.queueAdd(new creepAI_CreepManager(), priority.HIGH);
     //Add running the colonies to the queue
     // for(var i = 0; i < colonies.length; i++) queue.queueAdd(new Setup_Goals(colonies[i]), priority.HIGH);
     for (var i = 0; i < exports.colonies.length; i++)
@@ -2695,7 +2740,7 @@ module.exports.loop = function () {
     //Add items that should always be run... but only if they can be
     queue.queueAdd(new update_Rooms(rooms), priority.LOW);
     queue.queueAdd(new collect_Stats(), priority.LOW);
-    queue.queueAdd(new run_CreepManager(), priority.LOW);
+    queue.queueAdd(new run_CreepManager(), priority.HIGH);
     //Check if we need to init rooms again, if so do it at maximum priority
     if (rooms == undefined)
         rooms = (new init_Rooms(rooms).run());

@@ -1,5 +1,3 @@
-//Import the queue so we can request tasks, priority so we can set priority
-import { Queue } from "Queue";
 //Import the roles
 import { Creep_Role, Creep_Prototype, Goals } from "CreepTypes/CreepRole";
 import { Scout } from "CreepTypes/Scout";
@@ -8,11 +6,11 @@ import { Extractor } from "CreepTypes/Extractor";
 import { Miner } from "CreepTypes/Miner";
 //Array indexed by a string which corrosponds to creep role object
 interface IDictionary { [index: string]: Creep_Role; }
-var params = {} as IDictionary;
-params["Scout"] = new Scout();
-params["Defender"] = new Defender();
-params["Extractor"] = new Extractor();
-params["Miner"] = new Miner();
+var roles = {} as IDictionary;
+roles["Scout"] = new Scout();
+roles["Defender"] = new Defender();
+roles["Extractor"] = new Extractor();
+roles["Miner"] = new Miner();
 /**
  * This is an class describing a job for creeps to take on.
  */
@@ -23,89 +21,100 @@ export class Job {
     this.goal = g;
     this.room = r;
   }
-  getGoal(){ return this.goal; }
-  getRoom(){ return this.room; }
+  getGoal() { return this.goal; }
+  getRoom() { return this.room; }
 }
 /**
  * This is the creep manager class. It is mostly static and handles the
  * management of creeps including their AI and memory.
  */
 export class CreepManager {
-  //Variables
+  /**
+   * An array of jobs which need to be assigned to creeps.
+   */
   static jobs:Job[] = [];
+  /**
+   * An array which holds all the creeps.
+   */
   static creeps:Creep[] = [];
-
-  //Constructors
-  constructor(){
-    //Set the last time we cleaned memory to the anchient times
-    Memory.lastCreepClean = 0;
-  }
-
-  //Accessor methods
-
-  //Real methods
   /**
-   * Runs the creep manager class. Static as it has nothing it needs to modify
-   * on the object.
-   * Runtime: O(c) ---> Runs in constant time.
+   * Runs the creep manager on all the creeps in the game.
    */
-  static run(){
-    CreepManager.updateCreeps();
-    //Start at 6,000 ticks and increment down. Request a clean based on how long ago it was
-    for(var i = 4; i > 0; i--) if(Game.time - Memory.lastCreepClean >= 1500 * i || Memory.lastCreepClean == undefined) { Queue.request(new cleanMemory_CreepManager(), i * 25); console.log("Requested memory clean"); break; }
-  }
-  static runCreepsAI(){
-    CreepManager.updateCreeps();
-    CreepManager.assignJobs();
-    //Iterate through creeps
-    for(let c in Game.creeps){
-      //Short hand
-      var creep:Creep = Game.creeps[c];
-      //Check if the creep is spawning
-      if (creep.spawning) break;
-      //If the creep has a defined role run that role's AI
-      if(creep.memory.role != undefined) params[creep.memory.role].run(creep);
-      //Run the creep generalized AI
-      else Creep_Prototype.run(creep);
-      //Check the creep's life
-      Creep_Prototype.checkLife(creep);
-    }
-  }
-  /**
-   * Clears the memory of dead creeps.
-   * Runtime: O(n) ---> n is the number of creeps.
-   */
-  static cleanMemory() {
-    //Iterate through creeps and check if they're alive, if they're not clean the memory
-    for (var c in Memory.creeps) if(!Game.creeps[c]) delete Memory.creeps[c]; //O(n)
-    //Set the last clean date to right now
-    Memory.lastCreepClean = Game.time;
-  }
-  static updateCreeps(){
+  static run() {
+    CreepManager.resetRoomCounts();
     CreepManager.creeps = [];
-    for (var c in Memory.creeps) {
-      if(!Game.creeps[c]) delete Memory.creeps[c];
-      else CreepManager.creeps.push(Game.creeps[c]);
-    }
-  }
-  static declareJob(j:Job){ CreepManager.jobs.push(j); }
-  static assignJobs(){
-    for (var i = 0; i < CreepManager.jobs.length; i++) for (var j = 0; j < CreepManager.creeps.length; j++) {
-      if (CreepManager.creeps[j].memory.role != undefined) continue;
-      if (CreepManager.creeps[j].memory.room == CreepManager.jobs[i].getRoom()) {
-        if (CreepManager.creeps[j].memory.goal == undefined ||  CreepManager.creeps[j].memory.goal == Goals.UPGRADE || (CreepManager.jobs[i].getGoal() == Goals.FILL && Game.rooms[CreepManager.jobs[i].getRoom()].memory.counts["Fill"] == 0)) {
-          CreepManager.creeps[j].memory.goal = CreepManager.jobs.pop()!.getGoal();
-          break;
+
+    for (let c in Game.creeps) {
+      var creep:Creep = Game.creeps[c];
+      CreepManager.creeps.push(creep);
+
+      const role: string | undefined = creep.memory.role;
+      const room: string = creep.memory.room;
+      const goal: string | undefined = creep.memory.goal;
+
+      if(!Game.creeps[c]) { delete Memory.creeps[c]; continue; }
+
+      if (role != undefined) Memory.rooms[room].counts[role] += 1;
+      else {
+        Memory.rooms[room].counts["Worker"] += 1;
+        if (goal != undefined) Memory.rooms[room].counts[goal] +1;
+      }
+
+      if (creep.spawning) continue;
+      else if (role != undefined) roles[role].run(creep);
+      else Creep_Prototype.run(creep)
+      Creep_Prototype.checkLife(creep);
+
+      if (CreepManager.jobs.length > 0 && role == undefined) {
+        const jobRoom: string = CreepManager.jobs[0].getRoom();
+        const job: string = CreepManager.jobs[0].getGoal();
+        if (room == jobRoom && CreepManager.goalSwitch(goal, job, jobRoom)) {
+            creep.memory.goal = job;
+            CreepManager.jobs.pop();
         }
       }
     }
+  }
+  /**
+   * Resets all the counts for all the rooms under vision.
+   */
+  private static resetRoomCounts() {
+    for (let r in Game.rooms) {
+      var room:Room = Game.rooms[r];
+
+      room.memory.counts["Worker"] = 0;
+      room.memory.counts["Extractor"] = 0;
+      room.memory.counts["Miner"] = 0;
+
+      for (let g in Goals) {
+        room.memory.counts[g] = 0;
+      }
+    }
+  }
+  /**
+   * Runs some logic to determine whether a goal should be switched for another.
+   */
+  private static goalSwitch(goal: string | undefined, job: string, room: string) {
+    if (goal == undefined || goal == Goals.UPGRADE) return true;
+    else if (job == Goals.FILL && Game.rooms[room].memory.counts[Goals.FILL] == 0) return true;
+    else return false;
+  }
+  static declareJob(j:Job){ if(CreepManager.uniqueJob(j)) CreepManager.jobs.push(j); }
+  /**
+   * Looks at the jobs array and makes sure the given job is not part of it.
+   */
+  private static uniqueJob(j:Job) {
+    var jobs = CreepManager.jobs;
+    for (var i = 0; i < jobs.length; i++) if (jobs[i].getRoom() == j.getRoom() && jobs[i].getGoal() == j.getGoal()) return false;
+    return true;
   }
   static printJobs(){
     for (var i = 0; i < CreepManager.jobs.length; i++) console.log(CreepManager.jobs[i].getRoom() + " - " + CreepManager.jobs[i].getGoal());
     return 0;
   }
-  static resetJobs(){
-    while (CreepManager.jobs.length > 0) CreepManager.jobs.pop();
+  static resetJobs() {
+    CreepManager.jobs = [];
+    return 0;
   }
 }
 //Import the tasks interface
@@ -121,29 +130,5 @@ export class run_CreepManager extends template implements task {
   run(){
     //Simple enough I'd say
     CreepManager.run();
-  }
-}
-/**
- * The creepAI CreepManager task runs the ai for all the creeps.
- */
-export class creepAI_CreepManager extends template implements task {
-  constructor(){super("Run Creep AI");}
-  //Real Methods
-  run(){
-    //Simple enough I'd say
-    CreepManager.runCreepsAI();
-  }
-}
-/**
- * The clean memory task clears the memory of any old creeps so they don't clog
- * it up too much in the future.
- */
-export class cleanMemory_CreepManager extends template implements task {
-  //Variables
-  constructor(){super("Clean Creep Memory");}
-  //Real Methods
-  run(){
-    //Simple enough I'd say
-    CreepManager.cleanMemory();
   }
 }

@@ -10,8 +10,8 @@ import { StatsManager} from "Stats";
 //Import the tasks
 import { init_Rooms, print_Rooms, update_Rooms } from "Room";
 import { print_Stats, collect_Stats} from "Stats";
-import { run_CreepManager, creepAI_CreepManager, CreepManager } from "CreepManager";
-import { Colony, Run_Colony, Run_Census, Setup_Goals } from "Colony";
+import { run_CreepManager, CreepManager } from "CreepManager";
+import { Colony, Run_Colony, Setup_Goals } from "Colony";
 import { MarketManipulator } from "MarketManipulator";
 
 //A queue object holding the items which have been queue'd to complete.
@@ -52,8 +52,6 @@ module.exports.loop = function() { //Keep this main line
   }
   //Generate a pixel if we can.
   if(Game.cpu.bucket == 10000) if (Game.shard.name != "") Game.cpu.generatePixel();
-  //Things that should always be ran
-  queue.queueAdd(new creepAI_CreepManager(), priority.HIGH);
   //Add running the colonies to the queue
   // for(var i = 0; i < colonies.length; i++) queue.queueAdd(new Setup_Goals(colonies[i]), priority.HIGH);
   for(var i = 0; i < colonies.length; i++) queue.queueAdd(new Run_Colony(colonies[i]), priority.HIGH);
@@ -61,7 +59,7 @@ module.exports.loop = function() { //Keep this main line
   //Add items that should always be run... but only if they can be
   queue.queueAdd(new update_Rooms(rooms), priority.LOW);
   queue.queueAdd(new collect_Stats(), priority.LOW);
-  queue.queueAdd(new run_CreepManager(), priority.LOW);
+  queue.queueAdd(new run_CreepManager(), priority.HIGH);
 
   //Check if we need to init rooms again, if so do it at maximum priority
   if (rooms == undefined) rooms = (new init_Rooms(rooms).run());
